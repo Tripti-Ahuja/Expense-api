@@ -43,7 +43,7 @@ class TransactionOut(TransactionIn):
 
 @app.get("/")
 def root():
-    return {"message": "API with SQLite is live"}
+    return {"message": "Hello world!"}
 
 # create (one)
 @app.post("/transactions", response_model=TransactionOut)
