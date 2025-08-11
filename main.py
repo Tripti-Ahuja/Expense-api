@@ -43,7 +43,7 @@ class TransactionOut(TransactionIn):
 
 @app.get("/")
 def root():
-    return {"message": "Hello world!"}
+    return {"message": "Hello! API is live"}
 
 # create (one)
 @app.post("/transactions", response_model=TransactionOut)
