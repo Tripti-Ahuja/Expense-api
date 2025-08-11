@@ -81,12 +81,29 @@ class TransactionUpdate(BaseModel):
     category: Optional[str] = None
     date: Optional[str] = None
 
-@app.get("/transactions/{txn_id}", response_model=TransactionOut)
-def get_transaction(txn_id: int, db: Session = Depends(get_db)):
-    row = db.query(TransactionORM).get(txn_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    return TransactionOut(id=row.id, amount=row.amount, category=row.category, date=row.date)
+@app.get("/transactions", response_model=List[TransactionOut])
+def list_transactions(
+    category: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(TransactionORM)
+
+    if category:
+        query = query.filter(TransactionORM.category == category)
+
+    if from_date:
+        query = query.filter(TransactionORM.date >= from_date)
+
+    if to_date:
+        query = query.filter(TransactionORM.date <= to_date)
+
+    rows = query.order_by(TransactionORM.id.desc()).all()
+    return [
+        TransactionOut(id=r.id, amount=r.amount, category=r.category, date=r.date)
+        for r in rows
+    ]
 
 @app.put("/transactions/{txn_id}", response_model=TransactionOut)
 def replace_transaction(txn_id: int, data: TransactionIn, db: Session = Depends(get_db)):
