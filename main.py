@@ -1,16 +1,20 @@
 # main.py
-from typing import Optional
-from datetime import datetime
-from fastapi import HTTPException
-from fastapi import FastAPI, Depends
+from typing import Optional, List, Dict
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, Field
-from typing import List, Dict
 from sqlalchemy import create_engine, Column, Integer, Float, String
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from dotenv import load_dotenv
+import os
 
 # --------------------- DB setup ---------------------
-SQLITE_URL = "sqlite:///./expense.db"   # file will appear in project root
-engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False})
+load_dotenv()  # reads .env
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL not set. Add it to .env")
+
+# psycopg3 driver + SSL via ?sslmode=require in the URL
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
@@ -19,9 +23,10 @@ class TransactionORM(Base):
     id = Column(Integer, primary_key=True, index=True)
     amount = Column(Float, nullable=False)
     category = Column(String, nullable=False)
-    date = Column(String, nullable=False)  # keep simple for now (YYYY-MM-DD)
+    date = Column(String, nullable=False)  # keep "YYYY-MM-DD" as string for now
 
-Base.metadata.create_all(bind=engine)  # create table if it doesn't exist
+# create table(s) on Postgres if missing
+Base.metadata.create_all(bind=engine)
 
 def get_db() -> Session:
     db = SessionLocal()
@@ -31,21 +36,20 @@ def get_db() -> Session:
         db.close()
 
 # --------------------- API setup ---------------------
-app = FastAPI(title="Expense Tracker API (SQLite)")
+app = FastAPI(title="Expense Tracker API (Supabase Postgres)")
 
 class TransactionIn(BaseModel):
     amount: float = Field(gt=0)
     category: str
-    date: str                   # "YYYY-MM-DD"
+    date: str  # "YYYY-MM-DD"
 
 class TransactionOut(TransactionIn):
     id: int
 
 @app.get("/")
 def root():
-    return {"message": "Hello! API is"}
+    return {"message": "Hello! API is Live"}
 
-# create (one)
 @app.post("/transactions", response_model=TransactionOut)
 def add_transaction(txn: TransactionIn, db: Session = Depends(get_db)):
     row = TransactionORM(amount=txn.amount, category=txn.category, date=txn.date)
@@ -54,27 +58,23 @@ def add_transaction(txn: TransactionIn, db: Session = Depends(get_db)):
     db.refresh(row)
     return TransactionOut(id=row.id, amount=row.amount, category=row.category, date=row.date)
 
-# read all
 @app.get("/transactions", response_model=List[TransactionOut])
 def list_transactions(
     category: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     query = db.query(TransactionORM)
-
     if category:
         query = query.filter(TransactionORM.category == category)
     if from_date:
         query = query.filter(TransactionORM.date >= from_date)
     if to_date:
         query = query.filter(TransactionORM.date <= to_date)
-
     rows = query.order_by(TransactionORM.id.desc()).all()
     return [TransactionOut(id=r.id, amount=r.amount, category=r.category, date=r.date) for r in rows]
 
-# simple summary by category
 @app.get("/summary")
 def summary(db: Session = Depends(get_db)) -> Dict[str, float]:
     totals: Dict[str, float] = {}
@@ -82,7 +82,6 @@ def summary(db: Session = Depends(get_db)) -> Dict[str, float]:
         totals[r.category] = totals.get(r.category, 0.0) + r.amount
     return totals
 
-# bulk insert (add many at once)
 @app.post("/transactions/bulk")
 def add_transactions_bulk(txns: List[TransactionIn], db: Session = Depends(get_db)):
     rows = [TransactionORM(amount=t.amount, category=t.category, date=t.date) for t in txns]
@@ -97,26 +96,24 @@ class TransactionUpdate(BaseModel):
 
 @app.get("/transactions/{txn_id}", response_model=TransactionOut)
 def get_transaction(txn_id: int, db: Session = Depends(get_db)):
-    row = db.query(TransactionORM).get(txn_id)
+    row = db.get(TransactionORM, txn_id)
     if not row:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return TransactionOut(id=row.id, amount=row.amount, category=row.category, date=row.date)
 
 @app.put("/transactions/{txn_id}", response_model=TransactionOut)
 def replace_transaction(txn_id: int, data: TransactionIn, db: Session = Depends(get_db)):
-    row = db.query(TransactionORM).get(txn_id)
+    row = db.get(TransactionORM, txn_id)
     if not row:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    row.amount = data.amount
-    row.category = data.category
-    row.date = data.date
+    row.amount, row.category, row.date = data.amount, data.category, data.date
     db.commit()
     db.refresh(row)
     return TransactionOut(id=row.id, amount=row.amount, category=row.category, date=row.date)
 
 @app.patch("/transactions/{txn_id}", response_model=TransactionOut)
 def update_transaction(txn_id: int, data: TransactionUpdate, db: Session = Depends(get_db)):
-    row = db.query(TransactionORM).get(txn_id)
+    row = db.get(TransactionORM, txn_id)
     if not row:
         raise HTTPException(status_code=404, detail="Transaction not found")
     if data.amount is not None:
@@ -131,11 +128,9 @@ def update_transaction(txn_id: int, data: TransactionUpdate, db: Session = Depen
 
 @app.delete("/transactions/{txn_id}")
 def delete_transaction(txn_id: int, db: Session = Depends(get_db)):
-    row = db.query(TransactionORM).get(txn_id)
+    row = db.get(TransactionORM, txn_id)
     if not row:
         raise HTTPException(status_code=404, detail="Transaction not found")
     db.delete(row)
     db.commit()
     return {"ok": True, "deleted_id": txn_id}
-
-

@@ -1,12 +1,16 @@
-# Python cache
+# Python
 __pycache__/
-*.pyc
-
-# Virtual environment
-.venv/
-
-# SQLite database
-*.db
-
-# Environment variables
+*.py[cod]
+*.pyo
+*.pyd
 .env
+.venv/
+venv/
+.env.*
+*.sqlite3
+*.db
+*.db-journal
+
+# IDE
+.vscode/
+.idea/
