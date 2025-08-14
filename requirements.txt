@@ -3,6 +3,8 @@ anyio==4.10.0
 bcrypt==4.3.0
 click==8.2.1
 colorama==0.4.6
+dnspython==2.7.0
+email_validator==2.2.0
 fastapi==0.116.1
 greenlet==3.2.4
 h11==0.16.0
